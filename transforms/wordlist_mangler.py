@@ -8,8 +8,7 @@ This is far more deceptive than hash-based mangling (_h3f9a2c...)
 because human readers assume the names are meaningful.
 
 Strategy:
-  - Load wordlist (one word per line) from ALL .txt files in the same folder
-  - Allow numbers, punctuation, Unicode (only strip whitespace & filter length)
+  - Load wordlist (one word per line)
   - Derive a deterministic shuffle of the wordlist from the session master key
   - For each identifier, pick 2-3 words from the shuffled list and join with '_'
   - Counter ensures uniqueness; HKDF ensures different sessions produce different mappings
@@ -73,76 +72,75 @@ def _is_safe(name: str) -> bool:
 _THIS_DIR = Path(__file__).parent
 
 
-def _find_wordlist_auto() -> List[str]:
+def _find_wordlist_auto() -> Optional[str]:
     """
-    Search for ALL *.txt files in the same directory as wordlist_mangler.py
-    and combine their words into a single wordlist.
-    Returns a list of paths, or empty list if nothing found.
+    Search for a wordlist file automatically in this order:
+      1. Any *.txt file in the same directory as wordlist_mangler.py
+         whose name contains "word" (case-insensitive)
+      2. Any *.txt file in the same directory (first match)
+    Returns the path string, or None if nothing found.
     """
-    txt_files = sorted(_THIS_DIR.glob("*.txt"))
-    if not txt_files:
-        return []
-    print("[wordlist] Found " + str(len(txt_files)) + " wordlist files: " + ", ".join(f.name for f in txt_files))
-    return [str(f) for f in txt_files]
+    # Priority 1: files with "word" in the name
+    for candidate in sorted(_THIS_DIR.glob("*.txt")):
+        if "word" in candidate.stem.lower():
+            return str(candidate)
+    # Priority 2: any .txt file in the directory
+    for candidate in sorted(_THIS_DIR.glob("*.txt")):
+        return str(candidate)
+    return None
 
 
 def load_wordlist(path: Optional[str] = None) -> List[str]:
     """
-    Load a wordlist (one word per line) from ALL .txt files.
+    Load a wordlist (one word per line).
 
     Resolution order:
       1. Explicit *path* argument (if provided and file exists)
-      2. Auto-detect: ALL *.txt files in the same folder as wordlist_mangler.py
-         (combined into one wordlist)
+      2. Auto-detect: any *.txt in the same folder as wordlist_mangler.py
+         (files with "word" in their name take priority)
       3. Built-in fallback list (~220 words)
 
-    ALLOWED characters: any character except whitespace and empty lines.
-    Words are kept if length between 3-12 characters (after stripping).
-    No longer filter by isalpha() or isascii() — numbers, punctuation, Unicode allowed.
-    Up to 10,000 words are used (increased from original).
+    Only words that are:
+      - 3-12 characters long
+      - ASCII alphabetic only (no digits, no punctuation)
+    are kept.  Up to 5,000 words are used.
     """
-    resolved_paths: List[str] = []
+    resolved_path: Optional[str] = None
 
     if path:
         if Path(path).is_file():
-            resolved_paths = [path]
+            resolved_path = path
         else:
             print("[wordlist] WARNING: specified path not found: " + path + " — trying auto-detect")
 
-    if not resolved_paths:
-        resolved_paths = _find_wordlist_auto()
-        if resolved_paths:
-            print("[wordlist] Auto-detected " + str(len(resolved_paths)) + " wordlist files")
+    if resolved_path is None:
+        resolved_path = _find_wordlist_auto()
+        if resolved_path:
+            print("[wordlist] Auto-detected: " + resolved_path)
 
-    if not resolved_paths:
+    if resolved_path is None:
         print("[wordlist] No wordlist file found — using built-in vocabulary ("+str(len(_BUILTIN_WORDS))+" words)")
         return list(_BUILTIN_WORDS)
 
-    # Load words from all txt files
-    words = []
-    for resolved_path in resolved_paths:
-        try:
-            with open(resolved_path, encoding="utf-8", errors="ignore") as fh:
-                for line in fh:
-                    word = line.strip()
-                    # Keep line if not empty and length between 3 and 12 (after stripping)
-                    if word and 3 <= len(word) <= 12:
-                        # No further filtering — allow numbers, punctuation, Unicode
-                        words.append(word)
-            print("[wordlist] Loaded words from: " + resolved_path)
-        except (OSError, IOError) as exc:
-            print("[wordlist] Failed to read " + resolved_path + ": " + str(exc))
-
-    if not words:
-        print("[wordlist] No valid words found — using built-in")
+    try:
+        words = []
+        with open(resolved_path, encoding="utf-8", errors="ignore") as fh:
+            for line in fh:
+                word = line.strip().lower()
+                if 3 <= len(word) <= 12 and word.isalpha() and word.isascii():
+                    words.append(word)
+        if not words:
+            print("[wordlist] File was empty or had no valid words — using built-in")
+            return list(_BUILTIN_WORDS)
+        if len(words) < 50:
+            print("[wordlist] Only " + str(len(words)) + " valid words found — supplementing with built-in")
+            words = words + _BUILTIN_WORDS
+        words = words[:5000]
+        print("[wordlist] Loaded " + str(len(words)) + " words from: " + resolved_path)
+        return words
+    except (OSError, IOError) as exc:
+        print("[wordlist] Failed to read " + str(resolved_path) + ": " + str(exc) + " — using built-in")
         return list(_BUILTIN_WORDS)
-    if len(words) < 50:
-        print("[wordlist] Only " + str(len(words)) + " valid words found — supplementing with built-in")
-        words = words + _BUILTIN_WORDS
-    # Increased limit to 10,000 words (or remove limit entirely)
-    words = words[:10000]
-    print("[wordlist] Total " + str(len(words)) + " words loaded from " + str(len(resolved_paths)) + " files")
-    return words
 
 
 class WordlistMangler:
@@ -182,20 +180,6 @@ class WordlistMangler:
         self._words = list(words)
         self._rng.shuffle(self._words)
 
-    def _sanitize_for_python(self, candidate: str) -> str:
-        """
-        Ensure the mangled name is a valid Python identifier.
-        Replace invalid characters (e.g., '-', '@', '.', ' ') with '_'.
-        """
-        # Replace any character not allowed in Python identifiers with '_'
-        # Python identifiers: letters, digits, underscore, but cannot start with digit
-        # We'll replace all non-valid chars with '_', then ensure first char not digit
-        sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', candidate)
-        # If first character is digit, prepend an underscore
-        if sanitized and sanitized[0].isdigit():
-            sanitized = '_' + sanitized
-        return sanitized
-
     def _fresh_name(self, original: str, is_class: bool = False) -> str:
         self._counter += 1
         # Number of word parts: 2 or 3
@@ -204,14 +188,10 @@ class WordlistMangler:
             parts = self._rng.choices(self._words, k=n_parts)
             if is_class and self.capitalize_classes:
                 # CamelCase for classes: LoadSessionToken
-                # Need to sanitize each part first
-                sanitized_parts = [self._sanitize_for_python(p) for p in parts]
-                # Capitalize each part (first letter uppercase, rest lowercase)
-                candidate = "".join(p.capitalize() for p in sanitized_parts)
+                candidate = "".join(p.capitalize() for p in parts)
             else:
                 # snake_case for everything else: load_session_token
-                sanitized_parts = [self._sanitize_for_python(p) for p in parts]
-                candidate = "_".join(sanitized_parts)
+                candidate = "_".join(parts)
             # Uniqueness check
             if candidate not in self._used and candidate not in _BUILTINS_SET:
                 break

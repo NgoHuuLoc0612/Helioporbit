@@ -3,14 +3,14 @@ from setuptools import setup, find_packages
 setup(
     name="helioporbit",
     version="1.0.0",
-    description="Python Obfuscator & Deobfuscator",
+    description="Enterprise-grade Python Obfuscator & Deobfuscator",
     author="Helioporbit",
     license="MIT",
     python_requires=">=3.9",
     packages=find_packages(),
     install_requires=[],
     extras_require={
-        "fast": ["pycryptodome"],
+        "fast": ["pycryptodome>=3.18"],
     },
     entry_points={
         "console_scripts": [

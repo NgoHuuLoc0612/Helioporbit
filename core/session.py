@@ -64,6 +64,26 @@ class TransformConfig:
     anti_debug_mode: str           = "aggressive"      # passive | aggressive
     shuffle_seed_offset: int       = 0
     unicode_mode: str              = "mixed"           # full | partial | mixed
+    # Wordlist mangling (v2)
+    wordlist_path: str             = ""               # path to wordlist file; empty = built-in
+    use_wordlist: bool             = False            # enable wordlist-based name mangling
+    string_split_probability: float = 0.70            # chance to split/encode each string
+    junk_class_count: int          = 3                # fake classes to inject
+    junk_func_count: int           = 4                # fake functions to inject
+    comment_pollution_density: float = 0.20           # comment injection density 0-1
+    # Secret fragmentation (v2)
+    secret_fragment: bool          = True             # fragment secret-looking strings
+    secret_fragment_min: int       = 3                # min fragments per secret
+    secret_fragment_max: int       = 6                # max fragments per secret
+    # Function splitting (v2)
+    function_split: bool           = True             # split large functions
+    function_split_min_stmts: int  = 6                # min stmts to trigger split
+    function_split_probability: float = 0.85          # chance to split each eligible fn
+    # Literal encoding (v2)
+    literal_encode: bool           = True             # encode bool/None/bytes/float
+    literal_encode_probability: float = 0.75          # per-literal encode chance
+    # Bytecode encryption (v2) - requires C extension
+    encrypt_bytecode: bool         = False            # final bytecode encryption layer
 
 
 @dataclass

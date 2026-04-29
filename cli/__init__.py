@@ -40,7 +40,7 @@ def _prompt_password(prompt: str = "Session password") -> str:
 def _require_file(path: str, label: str) -> Path:
     p = Path(path)
     if not p.exists():
-        print(f"[error] {label} not found: {path}", file=sys.stderr)
+        print("[error] " + label + " not found: " + str(path), file=sys.stderr)
         sys.exit(1)
     return p
 
@@ -70,28 +70,44 @@ def cmd_obfuscate(args: argparse.Namespace) -> int:
     password = args.password or _prompt_password("Session password")
 
     cfg = TransformConfig(
-        string_encrypt_algo  = args.string_algo,
-        name_mangle_style    = args.name_style,
-        name_mangle_prefix   = args.name_prefix,
-        cff_dispatch         = "while_switch",
-        opaque_complexity    = args.opaque_complexity,
-        dead_code_ratio      = args.dead_ratio,
-        integer_encode_depth = args.int_depth,
-        junk_import_count    = args.junk_imports,
-        anti_debug_mode      = args.anti_debug,
+        string_encrypt_algo       = args.string_algo,
+        name_mangle_style         = args.name_style,
+        name_mangle_prefix        = args.name_prefix,
+        cff_dispatch              = "while_switch",
+        opaque_complexity         = args.opaque_complexity,
+        dead_code_ratio           = args.dead_ratio,
+        integer_encode_depth      = args.int_depth,
+        junk_import_count         = args.junk_imports,
+        anti_debug_mode           = args.anti_debug,
+        wordlist_path             = getattr(args, "wordlist_path", ""),
+        use_wordlist              = getattr(args, "use_wordlist", False),
+        string_split_probability  = getattr(args, "split_prob", 0.70),
+        junk_class_count          = getattr(args, "junk_classes", 3),
+        junk_func_count           = getattr(args, "junk_funcs", 4),
+        comment_pollution_density = getattr(args, "comment_density", 0.20),
+        secret_fragment           = getattr(args, "secret_fragment", True),
+        function_split            = getattr(args, "function_split", True),
+        literal_encode            = getattr(args, "literal_encode", True),
+        encrypt_bytecode          = getattr(args, "encrypt_bytecode", False),
     )
 
     out_path     = args.output or str(src_path.with_suffix(".hpo.py"))
     session_path = args.session or str(src_path.with_suffix(".hpb"))
 
-    print(f"[*] Input          : {src_path}")
-    print(f"[*] Output         : {out_path}")
-    print(f"[*] Session file   : {session_path}")
-    print(f"[*] Name style     : {cfg.name_mangle_style}")
-    print(f"[*] String algo    : {cfg.string_encrypt_algo}")
-    print(f"[*] Anti-debug     : {cfg.anti_debug_mode}")
-    print(f"[*] Dead code ratio: {cfg.dead_code_ratio}")
-    print("[*] Starting obfuscation pipeline…")
+    print("[*] Input          : " + str(src_path))
+    print("[*] Output         : " + str(out_path))
+    print("[*] Session file   : " + str(session_path))
+    print("[*] Name style     : " + cfg.name_mangle_style + (" + wordlist" if cfg.use_wordlist else ""))
+    print("[*] String algo    : " + cfg.string_encrypt_algo)
+    print("[*] Anti-debug     : " + cfg.anti_debug_mode)
+    print("[*] Dead code ratio: " + str(cfg.dead_code_ratio))
+    print("[*] String split   : " + str(cfg.string_split_probability))
+    print("[*] Junk classes   : " + str(cfg.junk_class_count))
+    print("[*] Comment noise  : " + str(cfg.comment_pollution_density))
+    if cfg.use_wordlist:
+        wl_src = cfg.wordlist_path if cfg.wordlist_path else "built-in"
+        print("[*] Wordlist       : " + wl_src)
+    print("[*] Starting obfuscation pipeline...")
 
     t0 = time.perf_counter()
     try:
@@ -103,7 +119,7 @@ def cmd_obfuscate(args: argparse.Namespace) -> int:
             session_path=session_path,
         )
     except Exception as exc:
-        print(f"[error] Obfuscation failed: {exc}", file=sys.stderr)
+        print("[error] Obfuscation failed: " + str(exc), file=sys.stderr)
         if args.verbose:
             traceback.print_exc()
         return 1
@@ -113,10 +129,10 @@ def cmd_obfuscate(args: argparse.Namespace) -> int:
     if args.analyse:
         _print_analysis(src_path.read_text(), result.source, result.session)
 
-    print(f"\n[✓] Done in {elapsed:.2f}s")
-    print(f"    Output  → {out_path}")
-    print(f"    Session → {session_path}")
-    print(f"\n  ⚠ Keep the session file (.hpb) safe — it is required for deobfuscation.")
+    print("[OK] Done in " + str(round(elapsed, 2)) + "s")
+    print("    Output  -> " + str(out_path))
+    print("    Session -> " + str(session_path))
+    print("Warning: Keep the session file (.hpb) safe -- required for deobfuscation.")
     return 0
 
 
@@ -133,9 +149,9 @@ def cmd_deobfuscate(args: argparse.Namespace) -> int:
 
     out_path = args.output or str(src_path.with_suffix(".deobf.py"))
 
-    print(f"[*] Input          : {src_path}")
-    print(f"[*] Session file   : {session_path}")
-    print(f"[*] Output         : {out_path}")
+    print("[*] Input          : " + str(src_path))
+    print("[*] Session file   : " + str(session_path))
+    print("[*] Output         : " + str(out_path))
     print("[*] Decrypting session & reversing transforms…")
 
     t0 = time.perf_counter()
@@ -148,19 +164,19 @@ def cmd_deobfuscate(args: argparse.Namespace) -> int:
             out_path,
         )
     except ValueError as exc:
-        print(f"[error] {exc}", file=sys.stderr)
+        print("[error] " + str(exc), file=sys.stderr)
         if args.verbose:
             traceback.print_exc()
         return 1
     except Exception as exc:
-        print(f"[error] Unexpected failure: {exc}", file=sys.stderr)
+        print("[error] Unexpected failure: " + str(exc), file=sys.stderr)
         if args.verbose:
             traceback.print_exc()
         return 1
 
     elapsed = time.perf_counter() - t0
-    print(f"\n[✓] Deobfuscation complete in {elapsed:.2f}s")
-    print(f"    Output → {out_path}")
+    print("[OK] Deobfuscation complete in " + str(round(elapsed, 2)) + "s")
+    print("    Output -> " + str(out_path))
     return 0
 
 
@@ -205,24 +221,24 @@ def cmd_verify(args: argparse.Namespace) -> int:
     session_path = _require_file(args.session, "Session file")
     password     = args.password or _prompt_password("Session password")
 
-    print(f"[*] Verifying session: {session_path}")
+    print("[*] Verifying session: " + str(session_path))
     try:
         session = ObfuscationSession.load_encrypted(str(session_path), password)
     except ValueError as exc:
-        print(f"[✗] Verification FAILED: {exc}", file=sys.stderr)
+        print("[FAIL] Verification FAILED: " + str(exc), file=sys.stderr)
         return 1
 
     import time as _t
     created = _t.strftime("%Y-%m-%d %H:%M:%S UTC", _t.gmtime(session.created_at))
-    print(f"[✓] Session verified successfully")
-    print(f"    Session ID     : {session.session_id}")
-    print(f"    Created        : {created}")
-    print(f"    Version        : {session.version}")
-    print(f"    Source hash    : {session.source_hash}")
-    print(f"    Strings table  : {len(session.string_table)} entries")
-    print(f"    Name map       : {len(session.name_map)} entries")
-    print(f"    CFF map        : {len(session.cff_map)} functions")
-    print(f"    Transforms     : {', '.join(session.transform_order)}")
+    print("[OK] Session verified successfully")
+    print("    Session ID     : " + session.session_id)
+    print("    Created        : " + created)
+    print("    Version        : " + str(session.version))
+    print("    Source hash    : " + session.source_hash)
+    print("    Strings table  : " + str(len(session.string_table)) + " entries")
+    print("    Name map       : " + str(len(session.name_map)) + " entries")
+    print("    CFF map        : " + str(len(session.cff_map)) + " functions")
+    print("    Transforms     : " + ", ".join(session.transform_order))
     return 0
 
 
@@ -270,6 +286,31 @@ def build_parser() -> argparse.ArgumentParser:
     p_obf.add_argument("--anti-debug",  choices=["passive", "aggressive", "none"],
                         default="aggressive", dest="anti_debug",
                         help="Anti-debug mode (default: aggressive)")
+    p_obf.add_argument("--wordlist",    metavar="FILE", default="",
+                        dest="wordlist_path",
+                        help="Path to wordlist file for name mangling (one word per line)")
+    p_obf.add_argument("--use-wordlist", action="store_true", dest="use_wordlist",
+                        help="Enable wordlist-based name mangling (auto-detects wordlist.txt in transforms/)")
+    p_obf.add_argument("--no-secret-fragment", action="store_false", dest="secret_fragment",
+                        help="Disable secret string fragmentation")
+    p_obf.add_argument("--no-func-split", action="store_false", dest="function_split",
+                        help="Disable function splitting")
+    p_obf.add_argument("--no-literal-encode", action="store_false", dest="literal_encode",
+                        help="Disable bool/None/bytes/float literal encoding")
+    p_obf.add_argument("--encrypt-bytecode", action="store_true", dest="encrypt_bytecode",
+                        help="Add encrypted bytecode layer (requires C extension: python setup_loader.py build_ext --inplace)")
+    p_obf.add_argument("--split-prob",  type=float, default=0.70,
+                        dest="split_prob", metavar="PROB",
+                        help="String split/encode probability 0.0-1.0 (default: 0.70)")
+    p_obf.add_argument("--junk-classes", type=int, default=3,
+                        dest="junk_classes", metavar="N",
+                        help="Number of junk classes to inject (default: 3)")
+    p_obf.add_argument("--junk-funcs",   type=int, default=4,
+                        dest="junk_funcs", metavar="N",
+                        help="Number of junk functions to inject (default: 4)")
+    p_obf.add_argument("--comment-density", type=float, default=0.20,
+                        dest="comment_density", metavar="DENSITY",
+                        help="Misleading comment injection density 0.0-1.0 (default: 0.20)")
     p_obf.add_argument("--analyse", action="store_true",
                         help="Print analysis report after obfuscation")
     p_obf.add_argument("-v", "--verbose", action="store_true")

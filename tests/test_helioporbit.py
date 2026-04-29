@@ -302,13 +302,22 @@ class TestStringEncryptor(unittest.TestCase):
         self.encryptor = StringEncryptor(self.key, "chacha")
 
     def test_encrypt_decrypt_chacha(self):
-        sid, meta = self.encryptor.encrypt_string("hello world")
-        import base64
-        ct  = base64.b85decode(meta["ct_b85"])
-        key = base64.b85decode(meta["key_b85"])
-        non = base64.b85decode(meta["nonce_b85"])
-        pt  = chacha20_encrypt(key, non, ct, counter=1)
-        self.assertEqual(pt.decode(), "hello world")
+        """Encrypt then decrypt using the actual chosen algo — must roundtrip."""
+        import base64, random as _r
+        from helioporbit.crypto.primitives import aes_ctr_decrypt, xor_multi_decrypt
+        for expected in ("hello123", "testkey", "abcdef"):
+            sid, meta = self.encryptor.encrypt_string(expected)
+            ct    = base64.b85decode(meta["ct_b85"])
+            key   = base64.b85decode(meta["key_b85"])
+            nonce = base64.b85decode(meta["nonce_b85"])
+            aid   = meta["algo_id"]
+            if aid == 0:
+                pt = chacha20_encrypt(key, nonce, ct, counter=1)
+            elif aid == 1:
+                pt = aes_ctr_decrypt(key[:16], nonce[:16].ljust(16, b"\x00"), ct)
+            else:
+                pt = xor_multi_decrypt(key, ct)
+            self.assertEqual(pt.decode("utf-8"), expected)
 
     def test_unique_sids(self):
         sid1, _ = self.encryptor.encrypt_string("abc")

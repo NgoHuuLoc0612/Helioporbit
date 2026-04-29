@@ -41,6 +41,13 @@ from helioporbit.transforms.anti_debug import (
     BuiltinRenamer,
     LambdaConverter,
 )
+from helioporbit.transforms.wordlist_mangler import (
+    WordlistMangler, apply_wordlist_mangling, load_wordlist,
+)
+from helioporbit.transforms.string_splitter import StringSplitterTransformer
+from helioporbit.transforms.junk_class_injector import JunkClassInjector, pollute_with_comments
+from helioporbit.transforms.secret_fragmenter import SecretFragmenter
+from helioporbit.transforms.function_splitter import FunctionSplitter, LiteralEncoder
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -203,7 +210,20 @@ class Obfuscator:
         try:
             tree = ast.parse(source)
         except SyntaxError as exc:
-            raise ValueError(f"Source has syntax errors: {exc}") from exc
+            raise ValueError("Source has syntax errors: " + str(exc)) from exc
+
+        # ── 1b. Secret fragmentation (before any other transform) ─────────────
+        if cfg.secret_fragment:
+            sf_key = session.derive_subkey("secret_fragment", 8)
+            sf_rng = random.Random(int.from_bytes(sf_key, "little"))
+            sf     = SecretFragmenter(
+                rng=sf_rng,
+                min_fragments=cfg.secret_fragment_min,
+                max_fragments=cfg.secret_fragment_max,
+                force_all=False,
+            )
+            tree = sf.visit(tree)
+            ast.fix_missing_locations(tree)
 
         # ── 2. Strip annotations ──────────────────────────────────────────────
         tree = _AnnotationStripper().visit(tree)
