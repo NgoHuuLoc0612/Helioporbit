@@ -1,4 +1,4 @@
-# Helioporbit — Enterprise Python Obfuscator
+# Helioporbit — Python Obfuscator
 
 ```
   ██╗  ██╗███████╗██╗     ██╗ ██████╗ ██████╗  ██████╗ ██████╗ ██████╗ ██╗████████╗
