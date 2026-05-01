@@ -84,6 +84,16 @@ class TransformConfig:
     literal_encode_probability: float = 0.75          # per-literal encode chance
     # Bytecode encryption (v2) - requires C extension
     encrypt_bytecode: bool         = False            # final bytecode encryption layer
+    # MBA encoding (v3) — Z3-verified Mixed Boolean-Arithmetic
+    mba_encode: bool               = True             # enable MBA integer encoding
+    mba_probability: float         = 0.80             # fraction of eligible constants
+    mba_depth: int                 = 2                # MBA expression recursion depth
+    mba_use_z3_linear: bool        = True             # use Z3-guided linear MBA
+    mba_z3_timeout_ms: int         = 2000             # Z3 solver timeout per query
+    # Anti-Tamper v2 (v3) — passive detection, clean exit
+    anti_tamper: bool              = True             # enable anti-tamper layers
+    anti_tamper_layers: str        = "1,3,4"          # comma-separated layer numbers
+    anti_tamper_inline_guards: bool = True            # inject per-function guards
 
 
 @dataclass

@@ -48,6 +48,8 @@ from helioporbit.transforms.string_splitter import StringSplitterTransformer
 from helioporbit.transforms.junk_class_injector import JunkClassInjector, pollute_with_comments
 from helioporbit.transforms.secret_fragmenter import SecretFragmenter
 from helioporbit.transforms.function_splitter import FunctionSplitter, LiteralEncoder
+from helioporbit.transforms.mba_encoder import MBAEncoderTransformer
+from helioporbit.transforms.anti_tamper_v2 import make_anti_tamper_stmts
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -241,10 +243,30 @@ class Obfuscator:
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 insert_idx = i + 1
 
+        # ── 4b. Anti-Tamper v2 ────────────────────────────────────────────────
+        at_module_stmts: list = []
+        at_inline_xfm = None
+        if cfg.anti_tamper:
+            _at_layers = set(
+                int(x.strip())
+                for x in cfg.anti_tamper_layers.split(",")
+                if x.strip().isdigit()
+            )
+            _at_rng = random.Random(int.from_bytes(
+                session.derive_subkey("anti_tamper", 8), "little"
+            ))
+            at_module_stmts, at_inline_xfm = make_anti_tamper_stmts(
+                master_key=master_key,
+                source_bytes=source.encode(),
+                rng=_at_rng,
+                layers=_at_layers,
+            )
+
         tree.body = (
             tree.body[:insert_idx]
             + junk_stmts
             + debug_stmts
+            + at_module_stmts
             + tree.body[insert_idx:]
         )
 
@@ -276,6 +298,21 @@ class Obfuscator:
         )
         tree = int_xformer.visit(tree)
         ast.fix_missing_locations(tree)
+
+        # ── 6b. MBA encoding (Z3-verified Mixed Boolean-Arithmetic) ──────────
+        if cfg.mba_encode:
+            mba_key = session.derive_subkey("mba_encoding", 8)
+            mba_rng = random.Random(int.from_bytes(mba_key, "little"))
+            mba_xfm = MBAEncoderTransformer(
+                rng=mba_rng,
+                probability=cfg.mba_probability,
+                max_depth=cfg.mba_depth,
+                use_z3_mba=cfg.mba_use_z3_linear,
+                z3_timeout_ms=cfg.mba_z3_timeout_ms,
+            )
+            tree = mba_xfm.visit(tree)
+            ast.fix_missing_locations(tree)
+            session.transform_order  # will be updated below
 
         # ── 7. Lambda conversion ──────────────────────────────────────────────
         tree = LambdaConverter().visit(tree)
@@ -318,15 +355,22 @@ class Obfuscator:
         tree   = dc.visit(tree)
         ast.fix_missing_locations(tree)
 
-        # ── 12. Body shuffle (top-level definitions) ──────────────────────────
+        # ── 12. Inline per-function anti-tamper guards ────────────────────────
+        if at_inline_xfm is not None and cfg.anti_tamper_inline_guards:
+            tree = at_inline_xfm.visit(tree)
+            ast.fix_missing_locations(tree)
+
+        # ── 13. Body shuffle (top-level definitions) ──────────────────────────
         tree = _shuffle_top_level(tree, rng)
 
-        # ── 13. Record transform order ────────────────────────────────────────
+        # ── 14. Record transform order ────────────────────────────────────────
         session.transform_order = [
             "annotation_strip", "junk_import", "anti_debug",
-            "string_encrypt", "integer_encode", "lambda_convert",
-            "name_mangle", "control_flow_flatten",
-            "dead_code_inject", "shuffle_body",
+            "anti_tamper_v2", "string_encrypt",
+            "integer_encode", "mba_encode",
+            "lambda_convert", "name_mangle",
+            "control_flow_flatten", "dead_code_inject",
+            "inline_guards", "shuffle_body",
         ]
 
         # ── 14. Unparse ───────────────────────────────────────────────────────
@@ -337,9 +381,10 @@ class Obfuscator:
 
         # ── 15. Post-process: compact + header comment ────────────────────────
         header = (
-            f"# Helioporbit v1.0 — protected source\n"
+            f"# Helioporbit v3.0 — protected source\n"
             f"# Session: {session.session_id}  |  {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n"
-            f"# DO NOT EDIT — protected by multi-layer obfuscation\n"
+            f"# Transforms: {', '.join(session.transform_order)}\n"
+            f"# DO NOT EDIT — protected by MBA + Anti-Tamper + multi-layer obfuscation\n"
         )
         return header + "\n" + obfuscated
 
