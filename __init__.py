@@ -1,8 +1,8 @@
-# Helioporbit - Enterprise Python Obfuscator & Deobfuscator
+# Helioporbit - Python Obfuscator & Deobfuscator
 # Multi-layer, AST-level, cryptographically-anchored protection system
 
 __version__ = "4.0.0"
-__author__ = "Helioporbit"
+__author__ = "me"
 __license__ = "MIT"
 
 from helioporbit.core.obfuscator import Obfuscator
