@@ -50,6 +50,7 @@ from helioporbit.transforms.secret_fragmenter import SecretFragmenter
 from helioporbit.transforms.function_splitter import FunctionSplitter, LiteralEncoder
 from helioporbit.transforms.mba_encoder import MBAEncoderTransformer
 from helioporbit.transforms.anti_tamper_v2 import make_anti_tamper_stmts
+from helioporbit.transforms.vm_engine import VMEngineTransformer, SMALL_PRIMES
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -355,6 +356,26 @@ class Obfuscator:
         tree   = dc.visit(tree)
         ast.fix_missing_locations(tree)
 
+        # ── 11b. VM Engine (self-defending decompilation-resistant VM) ────────
+        if cfg.vm_engine:
+            vm_key = session.derive_subkey("vm_engine", 8)
+            vm_rng = random.Random(int.from_bytes(vm_key, "little"))
+            # Pick phase prime from session key if not overridden
+            if cfg.vm_engine_phase_prime and cfg.vm_engine_phase_prime > 0:
+                phase_prime = cfg.vm_engine_phase_prime
+            else:
+                phase_prime = SMALL_PRIMES[int.from_bytes(vm_key[:2], "little") % len(SMALL_PRIMES)]
+            vm_xfm = VMEngineTransformer(
+                rng          = vm_rng,
+                min_stmts    = cfg.vm_engine_min_stmts,
+                probability  = cfg.vm_engine_probability,
+                phase_prime  = phase_prime,
+                decoy_count  = cfg.vm_engine_decoy_count,
+                macro_prob   = cfg.vm_engine_macro_prob,
+            )
+            tree = vm_xfm.visit(tree)
+            ast.fix_missing_locations(tree)
+
         # ── 12. Inline per-function anti-tamper guards ────────────────────────
         if at_inline_xfm is not None and cfg.anti_tamper_inline_guards:
             tree = at_inline_xfm.visit(tree)
@@ -370,6 +391,7 @@ class Obfuscator:
             "integer_encode", "mba_encode",
             "lambda_convert", "name_mangle",
             "control_flow_flatten", "dead_code_inject",
+            "vm_engine",
             "inline_guards", "shuffle_body",
         ]
 
@@ -381,10 +403,10 @@ class Obfuscator:
 
         # ── 15. Post-process: compact + header comment ────────────────────────
         header = (
-            f"# Helioporbit v3.0 — protected source\n"
+            f"# Helioporbit v4.0 — protected source\n"
             f"# Session: {session.session_id}  |  {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n"
             f"# Transforms: {', '.join(session.transform_order)}\n"
-            f"# DO NOT EDIT — protected by MBA + Anti-Tamper + multi-layer obfuscation\n"
+            f"# DO NOT EDIT — protected by VM-Engine + MBA + Anti-Tamper + multi-layer obfuscation\n"
         )
         return header + "\n" + obfuscated
 

@@ -94,6 +94,13 @@ class TransformConfig:
     anti_tamper: bool              = True             # enable anti-tamper layers
     anti_tamper_layers: str        = "1,3,4"          # comma-separated layer numbers
     anti_tamper_inline_guards: bool = True            # inject per-function guards
+    # VM Engine (v4) — self-defending, decompilation-resistant bytecode VM
+    vm_engine: bool                = True             # rewrite function bodies as VM eval-loops
+    vm_engine_probability: float   = 0.70             # fraction of eligible functions to VM-wrap
+    vm_engine_min_stmts: int       = 4                # min statements to trigger VM wrapping
+    vm_engine_decoy_count: int     = 10               # fake opcode handlers (vmDecoyOpcodes)
+    vm_engine_macro_prob: float    = 0.55             # macro fusion probability (vmMacroOps)
+    vm_engine_phase_prime: int     = 0                # 0 = auto-select from session key
 
 
 @dataclass
